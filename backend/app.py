@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import pandas as pd
@@ -7,6 +7,10 @@ from gemini_service import analyze_incident
 from feature_values import feature_values
 from triage_agent import triage_agent
 from triage.assignment_agent import intelligent_assignment
+from sqlalchemy.orm import Session
+from database import get_db, init_db, User
+from auth import hash_password, verify_password, create_access_token
+from fastapi.security import OAuth2PasswordRequestForm
 app = FastAPI(
     title="Enterprise AI ITSM",
     version="1.0"
@@ -19,30 +23,30 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
+init_db()
 
 # =========================================================
 # LOAD MODELS
 # =========================================================
 
 category_model = joblib.load(
-    r"D:\Enterprise_ITSM_AI\models_saved\category_prediction_pipeline.joblib"
+    r"D:\College_Projects\Enterprise_ITSM_AI\models_saved\category_prediction_pipeline.joblib"
 )
 
 category_encoder = joblib.load(
-    r"D:\Enterprise_ITSM_AI\models_saved\category_label_encoder.joblib"
+    r"D:\College_Projects\Enterprise_ITSM_AI\models_saved\category_label_encoder.joblib"
 )
 
 priority_model = joblib.load(
-    r"D:\Enterprise_ITSM_AI\models_saved\priority_prediction_pipeline.joblib"
+    r"D:\College_Projects\Enterprise_ITSM_AI\models_saved\priority_prediction_pipeline.joblib"
 )
 
 priority_encoder = joblib.load(
-    r"D:\Enterprise_ITSM_AI\models_saved\priority_label_encoder.joblib"
+    r"D:\College_Projects\Enterprise_ITSM_AI\models_saved\priority_label_encoder.joblib"
 )
 
 sla_model = joblib.load(
-    r"D:\Enterprise_ITSM_AI\models_saved\sla_prediction_pipeline.joblib"
+    r"D:\College_Projects\Enterprise_ITSM_AI\models_saved\sla_prediction_pipeline.joblib"
 )
 
 
@@ -63,6 +67,11 @@ class IncidentFeatures(BaseModel):
     is_weekend: bool
 class IncidentDescription(BaseModel):
     incident_description: str
+class SignupRequest(BaseModel):
+    name: str
+    email: str
+    password: str
+    role: str = "employee"    
 
 # =========================================================
 # HOME
@@ -185,3 +194,22 @@ def complete_triage(data: TriageRequest):
 def get_feature_values():
 
     return feature_values
+
+@app.post("/auth/signup")
+def signup(data: SignupRequest, db: Session = Depends(get_db)):
+
+    existing = db.query(User).filter(User.email == data.email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    new_user = User(
+        name=data.name,
+        email=data.email,
+        hashed_password=hash_password(data.password),
+        role=data.role
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    return {"message": "Account created successfully", "user_id": new_user.id}
