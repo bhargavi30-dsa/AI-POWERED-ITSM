@@ -8,8 +8,8 @@ from feature_values import feature_values
 from triage_agent import triage_agent
 from triage.assignment_agent import intelligent_assignment
 from sqlalchemy.orm import Session
-from database import get_db, init_db, User
-from auth import hash_password, verify_password, create_access_token
+from database import get_db, init_db, User, Ticket
+from auth import hash_password, verify_password, create_access_token, get_current_user
 from fastapi.security import OAuth2PasswordRequestForm
 app = FastAPI(
     title="Enterprise AI ITSM",
@@ -153,7 +153,11 @@ class TriageRequest(BaseModel):
 
 
 @app.post("/complete-triage")
-def complete_triage(data: TriageRequest):
+def complete_triage(
+    data: TriageRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
 
     # ---- AGENT 1: Triage (summary, features, category, priority, SLA) ----
     agent1_result = triage_agent.invoke({
@@ -174,8 +178,24 @@ def complete_triage(data: TriageRequest):
         top_n=3
     )
 
+    # ---- SAVE TO DATABASE ----
+    new_ticket = Ticket(
+        user_id=current_user.id,
+        incident_description=triage["incident_description"],
+        summary=triage["summary"],
+        predicted_category=triage["predicted_category"],
+        predicted_priority=triage["predicted_priority"],
+        predicted_sla=triage["predicted_sla"],
+        predicted_assignment_group=assignment_result["predicted_assignment_group"],
+        recommended_resolver=assignment_result["recommended_resolver"],
+    )
+    db.add(new_ticket)
+    db.commit()
+    db.refresh(new_ticket)
+
     # ---- COMBINE ----
     return {
+        "ticket_id": new_ticket.id,
         "incident_description": triage["incident_description"],
         "summary": triage["summary"],
         "validated_features": triage["validated_features"],
@@ -213,3 +233,19 @@ def signup(data: SignupRequest, db: Session = Depends(get_db)):
     db.refresh(new_user)
 
     return {"message": "Account created successfully", "user_id": new_user.id}
+@app.post("/auth/login")
+def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+
+    user = db.query(User).filter(User.email == form_data.username).first()
+
+    if not user or not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Incorrect email or password")
+
+    token = create_access_token(data={"sub": str(user.id)})
+
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "role": user.role,
+        "name": user.name
+    }
