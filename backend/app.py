@@ -249,3 +249,28 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         "role": user.role,
         "name": user.name
     }
+@app.get("/my-tickets")
+def my_tickets(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    tickets = (
+        db.query(Ticket)
+        .filter(Ticket.user_id == current_user.id)
+        .order_by(Ticket.created_at.desc())
+        .all()
+    )
+
+    return [
+        {
+            "id": t.id,
+            "incident_description": t.incident_description,
+            "predicted_category": t.predicted_category,
+            "predicted_priority": t.predicted_priority,
+            "predicted_sla": t.predicted_sla,
+            "predicted_assignment_group": t.predicted_assignment_group,
+            "recommended_resolver": t.recommended_resolver,
+            "created_at": t.created_at,
+        }
+        for t in tickets
+    ]    

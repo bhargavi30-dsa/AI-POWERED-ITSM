@@ -26,7 +26,7 @@ from database import get_db, User
 
 SECRET_KEY = "hjwioljkahuyui4gjiru9manf"
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 8 hour login session
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours login session
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
